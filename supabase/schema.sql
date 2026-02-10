@@ -41,6 +41,11 @@ create table if not exists clients (
 
 -- PROPERTIES TABLE
 -- Properties that agents have or find.
+-- Enable vector extension
+create extension if not exists vector;
+
+-- PROPERTIES TABLE
+-- Properties that agents have or find.
 create table if not exists properties (
   id uuid default uuid_generate_v4() primary key,
   agent_id uuid references agents(id) on delete cascade not null,
@@ -53,6 +58,9 @@ type text, -- 'Sell', 'Rent'
 bhk text, -- '2BHK', '3BHK'
 description text,
 contact_info text,
+
+-- Analytics
+embedding vector (768), -- Gemini text-embedding-004 dimensions
 
 -- Metadata
 status text default 'available', -- 'available', 'sold', 'rented'

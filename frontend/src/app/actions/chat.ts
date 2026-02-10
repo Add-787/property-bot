@@ -33,21 +33,59 @@ export async function sendMessage(content: string) {
     }
 
     // 3. Insert Message
-    const { error } = await supabase.from('messages').insert({
+    const { data: messageData, error } = await supabase.from('messages').insert({
         agent_id: agentId,
         content,
         role: 'user',
-    })
+    }).select().single()
 
     if (error) {
         console.error('Error sending message:', error)
         throw new Error('Failed to send message')
     }
 
-    // 4. (Future) Trigger AI / Parsing Logic here
-    // For now, simple echo or acknowledgment
-    // We will run this asynchronously or via a queue in real production, 
-    // but for MVP we can do a simple direct insertion.
+    // 4. Parse Property Details (Async)
+    // In a real app, this might be a background job. For MVP, we do it inline.
+    try {
+        const { parsePropertyDetails } = await import('@/lib/gemini')
+        const extractedData = await parsePropertyDetails(content)
+
+        if (extractedData && (extractedData.location || extractedData.price || extractedData.bhk)) {
+            // Generate Embedding
+            const { generateEmbedding } = await import('@/lib/gemini')
+            const embedding = await generateEmbedding(
+                `${extractedData.description || ''} ${extractedData.type} ${extractedData.bhk} in ${extractedData.location} at ${extractedData.price}`
+            )
+
+            // It looks like a property! Save it.
+            const { error: propError } = await supabase.from('properties').insert({
+                agent_id: agentId,
+                message_id: messageData.id,
+                raw_text: content,
+                location: extractedData.location,
+                price: extractedData.price,
+                type: extractedData.type,
+                bhk: extractedData.bhk,
+                description: extractedData.description,
+                contact_info: extractedData.contact_info,
+                status: 'available',
+                embedding: embedding
+            })
+
+            if (propError) {
+                console.error('Error saving property:', propError)
+            } else {
+                // Auto-reply confirming extraction
+                await supabase.from('messages').insert({
+                    agent_id: agentId,
+                    role: 'assistant',
+                    content: `I've saved this property in **${extractedData.location}** (${extractedData.bhk}, ${extractedData.price}).`
+                })
+            }
+        }
+    } catch (parseError) {
+        console.error('Parsing failed:', parseError)
+    }
 
     revalidatePath('/')
 }
